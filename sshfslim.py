@@ -1,26 +1,28 @@
 #!/usr/bin/env python
-from __future__ import print_function, absolute_import, division
 
 import base64
 import logging
+import os.path
 
 from errno import EACCES
-from os.path import realpath
-
 from fuse import FUSE, FuseOSError, Operations
-
+from lru import LRUCacheDict
+from metadatavfs import MetadataVFS
 from proxyfileclient import ProxyFileClient
-
+from threading import Lock
 
 class SSHFSlim(Operations):
     def __init__(self, server):
         self.client = ProxyFileClient(server)
+        self.vfs = MetadataVFS(self.client)
+        self.lock = Lock()
+        self.cache = LRUCacheDict(max_size=32, expiration=60)
 
     def __call__(self, op, path, *args):
         return super(SSHFSlim, self).__call__(op, path, *args)
 
     def access(self, path, mode):
-        if not self.client.command("access", {"path": path, "mode": mode}):
+        if not self.vfs.access(path, mode):
             raise FuseOSError(EACCES)
 
     def chmod(self, path, mode):
@@ -36,7 +38,7 @@ class SSHFSlim(Operations):
         return self.client.command("fsync", {"datasync": datasync, "fh": fh})
 
     def getattr(self, path, fh=None):
-        return self.client.command("getattr", {"path": path})
+        return self.vfs.getattr(path)
 
     getxattr = None
 
@@ -58,7 +60,7 @@ class SSHFSlim(Operations):
         return self.client.command("read", {"fh": fh, "offset": offset, "size": size})
 
     def readdir(self, path, fh):
-        return self.client.command("readdir", {"path": path})
+        return self.vfs.readdir(path)
 
     def readlink(self, path):
         return self.client.command("readlink", {"path": path})
@@ -73,7 +75,13 @@ class SSHFSlim(Operations):
         return self.client.command("rmdir", {"path": path})
 
     def statfs(self, path):
-        return self.client.command("statfs", {"path": path})
+        result = None
+        try:
+            result = self.cache[path]
+        except KeyError:
+            result = self.client.command("statfs", {"path": path})
+            self.cache[path] = result
+        return result
 
     def symlink(self, target, source):
         return self.client.command("symlink", {"target": target, "source": source})

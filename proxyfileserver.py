@@ -15,18 +15,15 @@ class ProxyFileServer:
     def work(self):
         command = struct.unpack("16p", sys.stdin.read(16))[0]
         func = {
-            "access":   self.access,
             "chmod":    self.chmod,
             "create":   self.create,
             "flush":    self.flush,
             "fsync":    self.fsync,
-            "getattr":  self.getattr,
             "link":     self.link,
             "mkdir":    self.mkdir,
             "mknod":    self.mknod,
             "open":     self.open,
             "read":     self.read,
-            "readdir":  self.readdir,
             "readlink": self.readlink,
             "release":  self.release,
             "rename":   self.rename,
@@ -37,15 +34,14 @@ class ProxyFileServer:
             "unlink":   self.unlink,
             "utimens":  self.utimens,
             "write":    self.write,
+
+            "xreaddir": self.xreaddir,
         }[command]
 
         try:
             self.sendResults(func(self.readParams()))
         except OSError as e:
             self.sendResults({"exception": "OSError", "errno": e.errno})
-
-    def access(self, params):
-        return os.access(params["path"], params["mode"])
 
     def chmod(self, params):
         os.chmod(params["path"], params["mode"])
@@ -63,12 +59,6 @@ class ProxyFileServer:
             return os.fdatasync(self.handles[params["fh"]])
         else:
             return self.flush(params)
-
-    def getattr(self, params):
-        st = os.lstat(params["path"])
-        return dict((key, getattr(st, key)) for key in (
-            "st_atime", "st_ctime", "st_gid", "st_mode", "st_mtime",
-            "st_nlink", "st_size", "st_uid"))
 
     def link(self, params):
         return os.link(params["source"], params["target"])
@@ -93,9 +83,6 @@ class ProxyFileServer:
         fh = self.handles[params["fh"]]
         os.lseek(fh, params["offset"], 0)
         return os.read(fh, params["size"])
-
-    def readdir(self, params):
-        return [".", ".."] + os.listdir(params["path"])
 
     def readlink(self, params):
         return os.readlink(params["path"])
@@ -129,12 +116,40 @@ class ProxyFileServer:
         return os.unlink(params["path"])
 
     def utimens(self, params):
-        return os.utime(params["path"], params["times"])
+        return os.utime(params["path"], tuple(params["times"]))
 
     def write(self, params):
         fh = self.handles[params["fh"]]
         os.lseek(fh, params["offset"], 0)
         return os.write(fh, base64.b64decode(params["data"]))
+
+
+    def xreaddir(self, params):
+        path = params["path"]
+        output = {}
+        files = ["."] + os.listdir(path)
+        for f in files:
+            output[f] = {
+                "access":     self.computeAccess(path + "/" + f),
+                "attributes": self.computeAttributes(path + "/" + f),
+            }
+        return output
+
+    def computeAccess(self, path):
+        access = 0
+        if os.access(path, os.R_OK):
+            access |= os.R_OK
+        if os.access(path, os.W_OK):
+            access |= os.W_OK
+        if os.access(path, os.X_OK):
+            access |= os.X_OK
+        return access
+
+    def computeAttributes(self, path):
+        st = os.lstat(path)
+        return dict((key, getattr(st, key)) for key in (
+            "st_atime", "st_ctime", "st_gid", "st_mode", "st_mtime",
+            "st_nlink", "st_size", "st_uid"))
 
 
     def readParams(self):
