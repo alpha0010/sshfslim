@@ -8,7 +8,7 @@ class MetadataVFS:
     def __init__(self, client):
         self.client = client
         self.lock = Lock()
-        self.cache = LRUCacheDict(max_size=32, expiration=60)
+        self.cache = LRUCacheDict(max_size=2048, expiration=60*10)
 
     def access(self, path, mode):
         dirName, fileName = os.path.split(path)
@@ -38,3 +38,9 @@ class MetadataVFS:
                 dirData = self.client.command("xreaddir", {"path": path})
                 self.cache[path] = dirData
             return dirData
+
+    def invalidate(self, path):
+        with self.lock:
+            self.cache.__delete__(path)
+            dirName, fileName = os.path.split(path)
+            self.cache.__delete__(dirName)
