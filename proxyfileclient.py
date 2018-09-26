@@ -6,7 +6,7 @@ import subprocess
 from threading import Lock
 
 class ProxyFileClient:
-    def __init__(self, server):
+    def __init__(self, server, root):
         self.proc = subprocess.Popen(
             ["ssh", server, "python", "-i"],
             stdin=subprocess.PIPE,
@@ -19,7 +19,7 @@ class ProxyFileClient:
                 if line.strip():
                     self.proc.stdin.write(line)
 
-        self.proc.stdin.write("\nProxyFileServer()\n")
+        self.proc.stdin.write("\nProxyFileServer(" + repr(root) + ")\n")
 
         while self.proc.stdout.readline().strip() != "ready":
             pass

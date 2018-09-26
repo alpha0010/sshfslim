@@ -3,6 +3,7 @@
 import base64
 import logging
 import os.path
+import stat
 
 from errno import EACCES
 from fuse import FUSE, FuseOSError, Operations
@@ -11,10 +12,17 @@ from metadatavfs import MetadataVFS
 from proxyfileclient import ProxyFileClient
 
 class SSHFSlim(Operations):
-    def __init__(self, server):
-        self.client = ProxyFileClient(server)
+    def __init__(self, server, root):
+        self.client = ProxyFileClient(server, root)
         self.vfs = MetadataVFS(self.client)
         self.cache = LRUCacheDict(max_size=1024, expiration=60 * 10, concurrent=True)
+
+        for directory in self.readdir("/", -1):
+            if directory in [".", ".."]:
+                continue
+            subdir = "/" + directory
+            if stat.S_ISDIR(self.getattr(subdir)["st_mode"]):
+                self.readdir(subdir, -1)
 
     def __call__(self, op, path, *args):
         return super(SSHFSlim, self).__call__(op, path, *args)
@@ -129,8 +137,13 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=logging.DEBUG)
 
+    server = args.server
+    root = "/"
+    if ":" in server:
+        server, root = server.split(":", 1)
+
     fuse = FUSE(
-        SSHFSlim(args.server),
+        SSHFSlim(server, root),
         args.mount,
         foreground=True#,
         #allow_other=True

@@ -5,7 +5,8 @@ import struct
 import sys
 
 class ProxyFileServer:
-    def __init__(self):
+    def __init__(self, root):
+        self.root = root
         self.nextHandle = 1
         self.handles = {}
         print("ready")
@@ -44,8 +45,7 @@ class ProxyFileServer:
             self.sendResults({"exception": "OSError", "errno": e.errno})
 
     def chmod(self, params):
-        os.chmod(params["path"], params["mode"])
-        return True
+        return os.chmod(params["path"], params["mode"])
 
     def create(self, params):
         params["flags"] = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
@@ -61,13 +61,13 @@ class ProxyFileServer:
             return self.flush(params)
 
     def link(self, params):
-        return os.link(params["source"], params["target"])
+        return os.link(self.root + params["source"], self.root + params["target"])
 
     def mkdir(self, params):
         return os.mkdir(params["path"], params["mode"])
 
     def mknod(self, params):
-        return os.mknod(params["filename"], params["mode"], params["device"])
+        return os.mknod(self.root + params["filename"], params["mode"], params["device"])
 
     def open(self, params):
         if "mode" in params:
@@ -94,7 +94,7 @@ class ProxyFileServer:
         return res
 
     def rename(self, params):
-        return os.rename(params["old"], params["new"])
+        return os.rename(self.root + params["old"], self.root + params["new"])
 
     def rmdir(self, params):
         return os.rmdir(params["path"])
@@ -106,7 +106,7 @@ class ProxyFileServer:
             "f_ffree", "f_files", "f_flag", "f_frsize", "f_namemax"))
 
     def symlink(self, params):
-        return os.symlink(params["source"], params["target"])
+        return os.symlink(self.root + params["source"], self.root + params["target"])
 
     def truncate(self, params):
         with open(params["path"], "r+") as f:
@@ -157,7 +157,7 @@ class ProxyFileServer:
         if isJson:
             temp = json.loads(sys.stdin.read(dataLen))
             if "path" in temp:
-                temp["path"] = "/home/mng/nobackup" + temp["path"]
+                temp["path"] = self.root + temp["path"]
             return temp
         else:
             return sys.stdin.read(dataLen)
